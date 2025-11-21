@@ -70,6 +70,8 @@ metadata:
   namespace: default
   annotations:
     kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: nginx
   rules:
@@ -82,8 +84,9 @@ spec:
                 name: guestbook-ui-blue
                 port:
                   number: 80
-          - path: /preview
-            pathType: Prefix
+          # regex path captures /preview and everything after it, then rewrites to /<captured>
+          - path: /preview(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: guestbook-ui-green
