@@ -100,22 +100,28 @@ spec:
 1. create a file named application.yaml and make sure to verify repoURL matches the repositry which you cloned above.
 
 ```
+---
+# 5) (Optional) Argo CD Application - points to /k8s-manifests in your repo
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: guestbook-rollout
+  name: guestbook-app
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://github.com/udemykcloud/argo-rollout-guestbook-blue-green.git
-    path: guestbook-rollout
+    repoURL: 'https://github.com/chandika-s/Argo-BootCamp-2025.git'  
     targetRevision: HEAD
+    path: k8s-manifests                              
   destination:
-    server: https://kubernetes.default.svc
+    server: 'https://kubernetes.default.svc'
     namespace: default
   syncPolicy:
-    automated: {}
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
 ```
 
 2. apply the application.yaml

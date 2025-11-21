@@ -5,7 +5,7 @@ metadata:
   name: guestbook-ui
   namespace: default
 spec:
-  replicas: 3
+  replicas: 2
   revisionHistoryLimit: 2
   selector:
     matchLabels:
@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: guestbook-ui
-          image: udemykcloud534/guestbook:green
+          image: udemykcloud534/guestbook:blue
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
