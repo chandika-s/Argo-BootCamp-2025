@@ -14,11 +14,11 @@ spec:
     metadata:
       labels:
         app: guestbook-ui
-        version: green     # change to blue/green based on release
+        version: green # change to blue/green based on release
     spec:
       containers:
         - name: guestbook-ui
-          image: udemykcloud534/guestbook:orange
+          image: udemykcloud534/guestbook:20251121-183018-28c1871
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -28,7 +28,6 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
-
   strategy:
     blueGreen:
       activeService: guestbook-ui-blue
@@ -49,6 +48,10 @@ spec:
       targetPort: 8080
   selector:
     app: guestbook-ui
+  template:
+    spec:
+      containers:
+        - image: udemykcloud534/guestbook:20251121-183018-28c1871
 ---
 # 3) Green Service (Preview)
 apiVersion: v1
@@ -62,6 +65,10 @@ spec:
       targetPort: 8080
   selector:
     app: guestbook-ui
+  template:
+    spec:
+      containers:
+        - image: udemykcloud534/guestbook:20251121-183018-28c1871
 ---
 # 4) Ingress for Blue (/) and Green (/preview)
 apiVersion: networking.k8s.io/v1
@@ -93,3 +100,7 @@ spec:
                 name: guestbook-ui-green
                 port:
                   number: 80
+  template:
+    spec:
+      containers:
+        - image: udemykcloud534/guestbook:20251121-183018-28c1871
