@@ -12,14 +12,14 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/cont
 ```
 2. Create a file name k8s-manifests\guestbook-rollout.yaml with  the below code
 
-```
+```# 1) Argo Rollout (Blue-Green) with manual promotion
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
   name: guestbook-ui
   namespace: default
 spec:
-  replicas: 3
+  replicas: 2
   revisionHistoryLimit: 2
   selector:
     matchLabels:
@@ -28,10 +28,11 @@ spec:
     metadata:
       labels:
         app: guestbook-ui
+        version: green     # change to blue/green based on release
     spec:
       containers:
         - name: guestbook-ui
-          image: udemykcloud534/guestbook:green
+          image: udemykcloud534/guestbook:orange
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -41,18 +42,20 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
+
   strategy:
     blueGreen:
-      activeService: guestbook-ui
-      previewService: guestbook-ui-canary
+      activeService: guestbook-ui-blue
+      previewService: guestbook-ui-green
       autoPromotionEnabled: true
       autoPromotionSeconds: 120
       scaleDownDelaySeconds: 300
 ---
+# 2) Blue Service (Active)
 apiVersion: v1
 kind: Service
 metadata:
-  name: guestbook-ui
+  name: guestbook-ui-blue
   namespace: default
 spec:
   ports:
@@ -61,10 +64,11 @@ spec:
   selector:
     app: guestbook-ui
 ---
+# 3) Green Service (Preview)
 apiVersion: v1
 kind: Service
 metadata:
-  name: guestbook-ui-blue-green
+  name: guestbook-ui-green
   namespace: default
 spec:
   ports:
@@ -73,6 +77,7 @@ spec:
   selector:
     app: guestbook-ui
 ---
+# 4) Ingress for Blue (/) and Green (/preview)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -80,6 +85,8 @@ metadata:
   namespace: default
   annotations:
     kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: nginx
   rules:
@@ -89,7 +96,15 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: guestbook-ui
+                name: guestbook-ui-blue
+                port:
+                  number: 80
+          # regex path captures /preview and everything after it, then rewrites to /<captured>
+          - path: /preview(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: guestbook-ui-green
                 port:
                   number: 80
 ```

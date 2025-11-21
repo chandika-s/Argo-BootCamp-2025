@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: write   # needed so the workflow can push changes back
 
 jobs:
   build-and-deploy:
@@ -18,13 +18,14 @@ jobs:
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
       COMMIT_EMAIL: "github-actions@example.com"
       COMMIT_NAME: "GitHub Actions"
-      MANIFESTS_REPO: "chandika-s/Argo-BootCamp-2025"
+      MANIFEST_PATH: "k8s-manifests/guestbook-rollout.yaml"
 
     steps:
-    - name: Checkout main Branch
+    - name: Checkout main Branch (with persist-credentials so we can push)
       uses: actions/checkout@v4
       with:
         ref: main
+        persist-credentials: true   # important to be able to push using GITHUB_TOKEN
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -44,22 +45,66 @@ jobs:
       run: echo "${DOCKERHUB_PASSWORD}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
 
     - name: Build and push Docker image
+      id: build_push
       run: |
+        # Create a reproducible image tag
         IMAGE_TAG="$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
         echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ./app
-        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+        IMAGE_FULL="${IMAGE_NAME}:${IMAGE_TAG}"
+        echo "IMAGE_FULL=${IMAGE_FULL}" >> $GITHUB_ENV
 
-    - name: Update Staging Manifest in Separate Repo
+        # Build and push
+        docker build -t ${IMAGE_FULL} ./app
+        docker push ${IMAGE_FULL}
+
+    # Install yq so we can edit yaml in-place
+    - name: Install yq (mikefarah) v4
       run: |
-        OVERLAY_PATH="kustomization-guestbook-multiple-environment/Overlays/dev"
-        
-        cd $OVERLAY_PATH
-        kustomize edit set image ${IMAGE_NAME}=${IMAGE_NAME}:${IMAGE_TAG}
-        cd ../../..
+        YQ_BIN="/usr/local/bin/yq"
+        curl -sSL -o $YQ_BIN "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+        chmod +x $YQ_BIN
+        yq --version
 
-        git config --global user.email "${COMMIT_EMAIL}"
-        git config --global user.name "${COMMIT_NAME}"
-        git add ${OVERLAY_PATH}/kustomization.yaml
-        git commit -m "Staging: Update image to ${IMAGE_NAME}:${IMAGE_TAG}" || echo "No changes to commit"
-        git push origin staging
+    - name: Update Rollout manifest image
+      id: update_manifest
+      env:
+        IMAGE_FULL: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        MANIFEST_PATH: ${{ env.MANIFEST_PATH }}
+      run: |
+        echo "Updating Rollout manifest: $MANIFEST_PATH -> image: $IMAGE_FULL"
+
+        # Ensure file exists
+        if [ ! -f "$MANIFEST_PATH" ]; then
+          echo "ERROR: manifest not found at $MANIFEST_PATH"
+          ls -la k8s-manifests || true
+          exit 1
+        fi
+
+        # Use yq to update the image of the first container in the Rollout spec
+        # This targets: spec.template.spec.containers[0].image
+        /usr/local/bin/yq eval -i ".spec.template.spec.containers[0].image = \"${IMAGE_FULL}\"" "$MANIFEST_PATH"
+
+        echo "Updated manifest content:"
+        /usr/local/bin/yq eval '.' "$MANIFEST_PATH"
+
+    - name: Commit & push manifest change
+      env:
+        GIT_AUTHOR_NAME: ${{ env.COMMIT_NAME }}
+        GIT_AUTHOR_EMAIL: ${{ env.COMMIT_EMAIL }}
+      run: |
+        git config user.email "${GIT_AUTHOR_EMAIL}"
+        git config user.name "${GIT_AUTHOR_NAME}"
+
+        # Only commit if there are changes
+        git add "${{ env.MANIFEST_PATH }}"
+        if git diff --cached --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "ci: update guestbook rollout image to ${IMAGE_FULL}"
+          git push origin HEAD:main
+          echo "Pushed updated manifest to main"
+        fi
+
+    - name: Notify (optional) - print final image location
+      run: |
+        echo "Image pushed: ${IMAGE_FULL}"
