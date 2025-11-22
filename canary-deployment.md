@@ -16,6 +16,7 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/cont
 1. Create a repositry name argo-rollout-canary and clone it into local
 2. Create a file name guestbook-rollout.yaml  within a folder named ** guestbook-rollout **  with the below code
 ```
+# 1) Argo Rollout (Canary) - manual promotion via pause steps
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -31,10 +32,12 @@ spec:
     metadata:
       labels:
         app: guestbook-ui
+        version: canary
     spec:
       containers:
         - name: guestbook-ui
           image: udemykcloud534/guestbook:green
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           readinessProbe:
@@ -43,56 +46,68 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
+
   strategy:
     canary:
-      steps:
-        - setWeight: 20
-        - pause: {}
-        - setWeight: 50
-        - pause: {}
-        - setWeight: 100
-      canaryService: guestbook-ui-canary
-      stableService: guestbook-ui
       trafficRouting:
         nginx:
           stableIngress: guestbook-ui-ingress
+          canaryIngress: guestbook-ui-canary-ingress
+
+      steps:
+        - setWeight: 10
+        - pause:
+            duration: 45       # pause for 45 seconds
+        - setWeight: 50
+        - pause:
+            duration: 45       # pause for 45 seconds
+        - setWeight: 100
+        - pause:
+            duration: 45       # pause for 45 seconds (optional)
 ---
+# 2) Stable Service (fronting active/stable ReplicaSet)
 apiVersion: v1
 kind: Service
 metadata:
   name: guestbook-ui
   namespace: default
 spec:
+  type: ClusterIP
   ports:
     - port: 80
       targetPort: 8080
   selector:
     app: guestbook-ui
 ---
+# 3) Canary Service (fronting canary ReplicaSet)
 apiVersion: v1
 kind: Service
 metadata:
   name: guestbook-ui-canary
   namespace: default
 spec:
+  type: ClusterIP
   ports:
     - port: 80
       targetPort: 8080
   selector:
     app: guestbook-ui
 ---
+# 4) Stable Ingress -> routes "/" to stable Service
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: guestbook-ui-ingress
   namespace: default
   annotations:
-    nginx.ingress.kubernetes.io/canary: "false"
     kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /        # optional: rewrite /preview -> /
+    nginx.ingress.kubernetes.io/use-regex: "true"
 spec:
   ingressClassName: nginx
   rules:
-    - http:
+    - host: guestbook.example.com
+      http:
         paths:
           - path: /
             pathType: Prefix
@@ -101,7 +116,13 @@ spec:
                 name: guestbook-ui
                 port:
                   number: 80
-
+          - path: /preview(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: guestbook-ui-canary
+                port:
+                  number: 80
 ```
 
 ## create application
